@@ -1,103 +1,74 @@
-#include "monty.h"
+include "monty.h"
+#include "lists.h"
 
-global_t vglo;
-
-/**
- * free_vglo - frees global variables
- *
- * Return: no return
- */
-void free_vglo(void)
-{
-	free_dlistint(vglo.head);
-	free(vglo.buffer);
-	fclose(vglo.fd);
-}
+data_t data = DATA_INIT;
 
 /**
- * start_vglo - initialize the global variables
+ * monty - helper function 
+ * @args: pointer to struct 
  *
- * @fd: file descriptor
- * Return: no return
+ * Description: opens and reads from the file
+ * containing the opcodes, and calls the function
+ * that will find the matching executing function
  */
-void start_vglo(FILE *fd)
+void monty(args_t *args)
 {
-	vglo.lifo = 1;
-	vglo.cont = 1;
-	vglo.arg = NULL;
-	vglo.head = NULL;
-	vglo.fd = fd;
-	vglo.buffer = NULL;
-}
+	size_t len = 0;
+	int get = 0;
+	void (*code_func)(stack_t **, unsigned int);
 
-/**
- * check_input - checks whether file exists and if the file can
- * be opened
- *
- * @argc: argument count
- * @argv: argument vector
- * Return: file struct
- */
-FILE *check_input(int argc, char *argv[])
-{
-	FILE *fd;
-
-	if (argc == 1 || argc > 2)
+	if (args->ac != 2)
 	{
-		dprintf(2, "USAGE: monty file\n");
+		dprintf(STDERR_FILENO, USAGE);
 		exit(EXIT_FAILURE);
 	}
-
-	fd = fopen(argv[1], "r");
-
-	if (fd == NULL)
+	data.fptr = fopen(args->av, "r");
+	if (!data.fptr)
 	{
-		dprintf(2, "Error: Can't open file %s\n", argv[1]);
+		dprintf(STDERR_FILENO, FILE_ERROR, args->av);
 		exit(EXIT_FAILURE);
 	}
-
-	return (fd);
+	while (1)
+	{
+		args->line_number++;
+		get = getline(&(data.line), &len, data.fptr);
+		if (get < 0)
+			break;
+		data.words = strtow(data.line);
+		if (data.words[0] == NULL || data.words[0][0] == '#')
+		{
+			free_all(0);
+			continue;
+		}
+		code_func = get_func(data.words);
+		if (!code_func)
+		{
+			dprintf(STDERR_FILENO, UNKNOWN, args->line_number, data.words[0]);
+			free_all(1);
+			exit(EXIT_FAILURE);
+		}
+		code_func(&(data.stack), args->line_number);
+		free_all(0);
+	}
+	free_all(1);
 }
 
 /**
- * main - Entry point
- *
+ * main - entry point for interpreter
  * @argc: argument count
- * @argv: argument vector
- * Return: 0 on success
+ * @argv: array of arguments
+ *
+ * Return: EXIT_SUCCESS or EXIT_FAILURE
  */
 int main(int argc, char *argv[])
 {
-	void (*f)(stack_t **stack, unsigned int line_number);
-	FILE *fd;
-	size_t size = 256;
-	ssize_t nlines = 0;
-	char *lines[2] = {NULL, NULL};
+	args_t args;
 
-	fd = check_input(argc, argv);
-	start_vglo(fd);
-	nlines = getline(&vglo.buffer, &size, fd);
-	while (nlines != -1)
-	{
-		lines[0] = _strtoky(vglo.buffer, " \t\n");
-		if (lines[0] && lines[0][0] != '#')
-		{
-			f = get_opcodes(lines[0]);
-			if (!f)
-			{
-				dprintf(2, "L%u: ", vglo.cont);
-				dprintf(2, "unknown instruction %s\n", lines[0]);
-				free_vglo();
-				exit(EXIT_FAILURE);
-			}
-			vglo.arg = _strtoky(NULL, " \t\n");
-			f(&vglo.head, vglo.cont);
-		}
-		nlines = getline(&vglo.buffer, &size, fd);
-		vglo.cont++;
-	}
+	args.av = argv[1];
+	args.ac = argc;
+	args.line_number = 0;
 
-	free_vglo();
+	monty(&args);
 
-	return (0);
+	return (EXIT_SUCCESS);
 }
